@@ -1,3 +1,4 @@
+(**Addition in galois field *)
 let gf_add x y =  x lxor y;;
 (**Substraction in galois field is the same as an addition *)
 let gf_sub x y =  x lxor y;;
@@ -38,6 +39,7 @@ let gf_sub x y =  x lxor y;;
     !result;;
  *)
 
+(**Multiplication in galois field without optimization *)
 let gf_mult_noLUT ?(prim=0) ?(field_charac_full=256) ?(carryless=true) x y =
     let y1 = ref y and x1 = ref x in
     let r = ref 0 in
@@ -49,6 +51,7 @@ let gf_mult_noLUT ?(prim=0) ?(field_charac_full=256) ?(carryless=true) x y =
         done;
     !r;;
 
+(**Init the exp and log table for optimize multiplication and addition in the galois field *)
 let init_table ?(prim=0x11d) () = 
     let gf_exp = Array.make 512 0 in
     let gf_log = Array.make 256 0 in
@@ -64,29 +67,41 @@ let init_table ?(prim=0x11d) () =
     done;
     gf_log, gf_exp;;
 
+(** Log table and Exp table for optimize the calcul i the galois field *)
 let gf_log, gf_exp = init_table ();;
 
+(** Multiplication opti with log and exp table *)
 let gf_mul x y =
     if x = 0 || y = 0 then 0
     else gf_exp.(gf_log.(x) + gf_log.(y));;
 
-
+(** Division in galois field with the log and exp table for optimization *)
 let gf_div x y =
     if y = 0 then failwith "Division by 0" ;
     if x = 0 then 0
     else gf_exp.((gf_log.(x)+255 - gf_log.(y)) mod 255);;
 
-let gf_pow x power = gf_exp.( (((gf_log.(x) * power ) mod 255) + 255) mod 255 );;
+let ( /// ) x y =
+    let result = x mod y in
+    if result >= 0 then result
+    else result + y;;
 
+(** Power optimize with log and exp table *)
+let gf_pow x power = gf_exp.( (gf_log.(x) * power ) /// 255 );;
+
+(** Inverse is the same of 1/x *)
 let gf_inverse x = gf_exp.(255-gf_log.(x));;
 
+(** Multiplies a polynomial by a scalar *)
 let gf_poly_scale p x = 
     let n = Array.length p in
+    let r = Array.make n 0 in
     for i = 0 to n-1 do
-        p.(i) <- gf_mul p.(i) x
+        r.(i) <- gf_mul p.(i) x
     done;
-    p;;
+    r;;
 
+(** Addition of two polynomial *)
 let gf_poly_add p q =
     let np = Array.length p and nq = Array.length q in
     let nr = max np nq in
@@ -99,6 +114,7 @@ let gf_poly_add p q =
     done;
     r;;
 
+(** Multiplication of two polynomials *)
 let gf_poly_mul p q =
     let np = Array.length p and nq = Array.length q in
     let r = Array.make (np+nq-1)0 in
@@ -109,6 +125,7 @@ let gf_poly_mul p q =
     done;
     r;;
 
+(** Evaluation of a polynomial [p] in [x] *)
 let gf_poly_eval p x =
     let y = ref p.(0) in
     for i = 1 to Array.length p - 1 do
@@ -117,10 +134,7 @@ let gf_poly_eval p x =
     !y;;
 
 
-gf_poly_eval [|0x01; 0x0f; 0x36; 0x78; 0x40|] 0 ;;
-
-
-
+(** Generate the generator polynomial *)
 let rs_generator_poly n =
     let g = ref [|1|] in
     for i = 0 to n-1 do
@@ -128,6 +142,8 @@ let rs_generator_poly n =
     done;
     !g;;
 
+
+(** Division of two polynomials *)
 let gf_poly_div dividend divisor =
     let msg = dividend in
     for i = 0 to Array.length dividend - Array.length divisor do
@@ -139,6 +155,8 @@ let gf_poly_div dividend divisor =
     done;
     msg , Array.length msg - Array.length divisor +1;;
 
+
+(** Encode the message *)
 let rs_encode_msg msg n =
     let g = rs_generator_poly n in
     let xmsg = Array.make (Array.length msg + Array.length g -1) 0 in 
@@ -153,21 +171,7 @@ let rs_encode_msg msg n =
 
 
 
-(* 
-let test = rs_generator_poly 4;;
-
-rs_encode_msg [|0x12;0x34;0x56|] 4;;
-*)
-
-let msg_in = [| 0x40; 0xd2; 0x75; 0x47; 0x76; 0x17; 0x32; 0x06;0x27; 0x26; 0x96; 0xc6; 0xc6; 0x96; 0x70; 0xec |];;
-
-let msg = rs_encode_msg msg_in 10;;
-msg = [|0x40; 0xd2; 0x75; 0x47; 0x76; 0x17; 0x32; 0x6; 0x27; 0x26; 0x96; 0xc6; 0xc6; 0x96; 0x70; 0xec;
-0xbc; 0x2a ;0x90; 0x13; 0x6b; 0xaf; 0xef; 0xfd; 0x4b; 0xe0|];;
-
-
-
-
+(** Calcul syndrome of the message receive *)
 let rs_calcul_syndrome msg nsym = 
     let syndrome = Array.make (nsym) 0 in
     for i = 0 to nsym-1 do
@@ -186,6 +190,7 @@ let rs_find_error_location pos =
     done;
     !location;;
 
+
 let rs_find_error_evaluate synd error_location nsym =
     let s = Array.make (nsym+1) 0 in s.(0) <- s.(0) + 1;
     let quotient, separator = gf_poly_div (gf_poly_mul synd error_location) s in
@@ -194,6 +199,7 @@ let rs_find_error_evaluate synd error_location nsym =
         remainder.(i) <- quotient.(separator + i)
     done;
     remainder;;
+
 
 (*Error in this code*)
 let rs_correction msg_in synd error_position =
@@ -239,32 +245,18 @@ let rs_correction msg_in synd error_position =
 
 
 
-let synd = rs_calcul_syndrome msg 10;; (**It's egal to a nul array normaly *)
-rs_check msg 10;;
-    
-let msg2 = Array.copy msg;;
-msg2.(0) <- 0;;
-    
-let synd_error = rs_calcul_syndrome msg2 10;;
-rs_check msg2 10;;
-
-let corr = rs_correction msg2 synd_error [|24|];;
-let a = [|0x40; 0xd2; 0x75; 0x47; 0x76; 0x17; 0x32; 0x6; 0x27; 0x26; 0x96; 0xc6; 0xc6; 0x96; 0x70; 0xec;
-0xbc; 0x2a ;0x90; 0x13; 0x6b; 0xaf; 0xef; 0xfd; 0x4b; 0xe0|];;
-corr = [|0x40; 0xd2; 0x75; 0x47; 0x76; 0x17; 0x32; 0x6; 0x27; 0x26; 0x96; 0xc6; 0xc6; 0x96; 0x70; 0xec;
-0xbc; 0x2a ;0x90; 0x13; 0x6b; 0xaf; 0xef; 0xfd; 0x4b; 0xe0|];;
-
-
 let rs_find_error_locator ?(erase_loc=None) ?(erase_count=0) synd nsym =
-    let err_loc, old_loc = if Option.is_some erase_loc then ref (Array.copy (Option.get erase_loc)), ref (Array.copy (Option.get erase_loc)) else ref [|1|], ref [|1|] in
-    let synd_shift = Array.length synd - nsym in
+    let err_loc, old_loc = if Option.is_some erase_loc then 
+                             ref (Array.copy (Option.get erase_loc)), ref (Array.copy (Option.get erase_loc)) 
+                            else ref [|1|], ref [|1|] in
+    let synd_shift = if Array.length synd > nsym then Array.length synd - nsym else 0    in
 
     for i = 0 to nsym-erase_count -1 do
         let k = if Option.is_some erase_loc then erase_count + i + synd_shift else i + synd_shift in
         let temp = synd.(k) in
         let delta = ref temp in
         for j = 1 to Array.length !err_loc -1 do
-            delta := !delta lxor gf_mul !err_loc.(Array.length !err_loc -(j+1)) synd.(k-j);
+            delta := gf_add !delta (gf_mul !err_loc.(Array.length !err_loc -(j+1)) synd.(k-j));
         done;
 
         old_loc := Array.append !old_loc [|0|];
@@ -289,25 +281,77 @@ let rs_find_error_locator ?(erase_loc=None) ?(erase_count=0) synd nsym =
 
 let rs_find_error err_loc len_msg =
     let errs = Array.length err_loc -1 in
-    let err_pos = ref [||] and result = ref [||] in
+    let err_pos = ref [||] in
     for i = 0 to len_msg -1 do
-        let a = gf_poly_eval err_loc (gf_pow 2 i)in 
-        if a = 0 then err_pos := Array.append !err_pos [|len_msg-1-i|];
-        result := Array.append !result [|a|]
+        if gf_poly_eval err_loc (gf_pow 2 i) = 0 then err_pos := Array.append !err_pos [|len_msg-1-i|];
     done;
-    if Array.length !err_pos <> errs then err_pos := !result;
+    if Array.length !err_pos <> errs then failwith "error in chien search";
     !err_pos;;
 
-let msg3 = Array.copy msg;;
-msg3.(0) <- 0;;
-(* msg3.(10) <- 7;;
-msg3.(20) <- 8;; *)
-let synd3 = rs_calcul_syndrome msg3 10;;
-let err_loc3 = rs_find_error_locator synd3 10;;
-let err_loc31 = Array.make (Array.length err_loc3) 0;;
-for i = 0 to Array.length err_loc3 -1 do
-    err_loc31.(i) <- err_loc3.(Array.length err_loc3 -1 -i)
-done;;
-err_loc31, err_loc3;;
-let pos3 = rs_find_error err_loc3 (Array.length msg3);;
-rs_correction msg3 synd3 [|0|];;
+
+let rs_forney_syndrome synd pos nmsg =
+    let erase_pos_revers = Array.make (Array.length pos) 0 in
+    for i = 0 to Array.length pos -1 do
+        erase_pos_revers.(i) <- nmsg - 1 -pos.(i)
+    done;
+
+    let fsynd = Array.make (Array.length synd ) 0 in
+    for i = 0 to Array.length synd -1 do
+        fsynd.(i) <- synd.(i)
+    done;
+    for i = 0 to Array.length pos -1 do
+        let x = gf_pow 2 erase_pos_revers.(i) in
+        for j = 0 to Array.length fsynd -2 do
+            fsynd.(j) <- (gf_mul fsynd.(j) x) lxor fsynd.(j+1)
+        done;
+    done;
+    fsynd;;
+
+let rs_correct_msg ?(erase_pos=None) msg_in nsym =
+    if Array.length msg_in > 255 then failwith "to long";
+
+    let msg_out = Array.copy msg_in in
+
+    let erase_posc = if Option.is_none erase_pos then [||] else Option.get (erase_pos) in
+    if Option.is_some erase_pos then 
+        for i =0 to Array.length erase_posc - 1 do
+        msg_out.(erase_posc.(i)) <- 0;
+        done;
+    
+    if Array.length erase_posc > nsym then failwith "too many error";
+
+    let synd = rs_calcul_syndrome msg_out nsym in
+    if synd = Array.make nsym 0 then msg_out
+    else begin
+    
+    let fsynd = rs_forney_syndrome synd erase_posc (Array.length msg_out) in
+    let err_loc = rs_find_error_locator ~erase_count:(Array.length erase_posc) fsynd nsym in
+    let err_loc1 = Array.make (Array.length err_loc) 0 in
+    for i = 0 to Array.length err_loc1 - 1 do
+        err_loc1.(i) <- err_loc.(Array.length err_loc -1 -i)
+        done;
+    let err_pos = rs_find_error err_loc1 (Array.length msg_out) in
+    if err_pos = [||] then failwith "position of the error not find";
+    let errase_pos_tot = Array.append erase_posc err_pos in
+
+    rs_correction msg_out synd errase_pos_tot end;;
+
+
+(**TEST *)
+let n = 20;;
+let k = 11;;
+let message = "hello world";;
+let msg = Array.make (String.length message) 0;;
+for i = 0 to String.length message -1 do
+    msg.(i) <- Char.code ( message.[i]);
+    done;;
+let message_encode = rs_encode_msg msg (n-k);;
+message_encode.(0) <- 0;;
+message_encode.(1) <- 2;;
+message_encode.(2) <- 2;;
+message_encode.(3) <- 2;;
+message_encode.(4) <- 2;;
+message_encode.(5) <- 2;;
+message_encode;;
+rs_correct_msg message_encode (n-k) ~erase_pos:(Some([|0;1;2|]));;
+
