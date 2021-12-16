@@ -3,42 +3,6 @@ let gf_add x y =  x lxor y;;
 (**Substraction in galois field is the same as an addition *)
 let gf_sub x y =  x lxor y;;
 
-(* let gf_mult_noLUT ?(prim=0) x y  =
-
-    let cl_mult x y =
-        let z = ref 0 and i = ref 0 in
-        while ( y lsr !i) > 0 do
-            if y land (1 lsl !i) <> 0 then z :=  !z lxor ( x lsl !i);
-        incr i
-        done;
-        !z
-    in
-
-    let bit_length n =
-        let bits = ref 0 in
-        while n lsr !bits <> 0 do 
-            incr bits
-        done;
-        !bits
-    in
-
-    let cl_div ?(divisor=0) dividend =
-        let div = ref dividend in
-        let dl1 = bit_length !div in
-        let dl2 = bit_length divisor in
-
-        if dl1 < dl2 then !div
-        else (for i = dl1-dl2 downto 0 do
-                if !div land (1 lsl (i + dl2 - 1) ) <> 0 then div := !div lxor (divisor lsl i)
-            done;
-        !div)
-    in
-
-    let result = ref (cl_mult x y) in
-    if prim > 0 then result := cl_div ~divisor:prim !result ;
-    !result;;
- *)
-
 (**Multiplication in galois field without optimization *)
 let gf_mult_noLUT ?(prim=0) ?(field_charac_full=256) ?(carryless=true) x y =
     let y1 = ref y and x1 = ref x in
@@ -179,7 +143,7 @@ let rs_calcul_syndrome msg nsym =
     done;
     syndrome;;
 
-    let rs_check msg nsym =  rs_calcul_syndrome msg nsym = Array.make nsym 0;;
+let rs_check msg nsym =  rs_calcul_syndrome msg nsym = Array.make nsym 0;;
 
 
 
@@ -336,22 +300,49 @@ let rs_correct_msg ?(erase_pos=None) msg_in nsym =
 
     rs_correction msg_out synd errase_pos_tot end;;
 
+open Printf
+open Random
 
-(**TEST *)
-let n = 20;;
-let k = 11;;
-let message = "hello world";;
-let msg = Array.make (String.length message) 0;;
-for i = 0 to String.length message -1 do
-    msg.(i) <- Char.code ( message.[i]);
-    done;;
-let message_encode = rs_encode_msg msg (n-k);;
-message_encode.(0) <- 0;;
-message_encode.(1) <- 2;;
-message_encode.(2) <- 2;;
-message_encode.(3) <- 2;;
-message_encode.(4) <- 2;;
-message_encode.(5) <- 2;;
-message_encode;;
-rs_correct_msg message_encode (n-k) ~erase_pos:(Some([|0;1;2|]));;
 
+let test n k ?(p=0.) ?(ne=0) ntest seed =
+    Random.init seed;
+    let sucess = ref 0 in 
+    let random_message n = let msg =  Array.make n 0 in
+        for i = 0 to n-1 do
+            msg.(i) <- Random.int 256
+            done;
+        msg in
+    let add_error msg n = 
+        let msge = Array.copy msg in
+        if p <> 0. then begin
+        for i = 0 to n-1 do
+            if Random.float 1. < p then msge.(i) <- Random.int 256
+        done; msge end
+        else if ne <> 0 then begin
+        for i = 0 to ne-1 do
+            msge.(Random.int n) <- Random.int 256
+        done; msge end
+        else failwith "add a proba or a error number in parameters"
+        in
+    
+    let hamming_distance a b = let n = Array.length a in let d = ref 0 in
+        for i = 0 to n-1 do
+            if a.(i) <> b.(i) then incr d;
+            done;
+        !d
+    in
+
+    for i = 1 to ntest do
+        let msg_init = random_message n in
+        let encoded_msg = rs_encode_msg msg_init (n-k) in
+        let erroned_msg = add_error encoded_msg n in
+        try
+            let decoded_msg = rs_correct_msg erroned_msg (n-k) in
+            if encoded_msg = decoded_msg then incr sucess;
+            printf "boucle %d %d %d\n"  i (hamming_distance encoded_msg erroned_msg) (hamming_distance encoded_msg decoded_msg);
+        with _ -> ();
+        
+        done;
+        printf "taux de reparation : %d / %d"  !sucess ntest;;
+
+test 200 150 ~p:0.5 100 25;;
